@@ -1,24 +1,30 @@
-use std::{cell::OnceCell, collections::HashMap, fs, io, path::Path, sync::OnceLock};
+use ini::Ini;
+use std::{
+    cell::OnceCell,
+    collections::HashMap,
+    fs, io,
+    net::IpAddr,
+    path::Path,
+    rc::Rc,
+    sync::{OnceLock, RwLock},
+};
 use thiserror::Error;
 
-pub static CONFIG_EXAMPLE: &str = r#"window_title = deurbel
-ping_interval = 30
-
-[ping]
-google = https://google.com
-youtube = ttps://youtube.com
-"#;
+pub const CFG_WINDOW_TITLE: &str = "window_naam";
+pub const CFG_PING_INTERVAL: &str = "ping_interval";
+pub const CFG_PING_SECTION: &str = "ping";
 
 pub static CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn config() -> &'static Config {
-    unsafe { CONFIG.get().unwrap() }
+    CONFIG.get().unwrap()
 }
 
+#[derive(Debug)]
 pub struct Config {
     pub window_title: String,
     pub ping_interval: u64,
-    pub ping_targets: HashMap<String, String>,
+    pub ping_targets: Vec<(String, IpAddr)>,
 }
 
 #[derive(Error, Debug)]
@@ -32,22 +38,50 @@ pub enum ConfigError {
     #[error("option {0} is missing")]
     OptionMissing(&'static str),
 
+    #[error("Invalid IP address {1} for {0}")]
+    InvalidAddr(String, String),
+
     #[error("Invalid number value {0} for {1}")]
     InvalidNumber(String, &'static str),
 
     #[error("ping section contains no targets.")]
     NoTargets,
-
-    #[error("duplicate option {0}")]
-    DuplicateOption(String),
 }
 
 impl Config {
     pub const PATH: &str = "pingconfig.ini";
-    pub const EXAMPLE_PATH: &str = "pingconfig-EXAMPLE.ini";
 
-    pub fn write_example() -> Result<(), io::Error> {
-        fs::write(Self::EXAMPLE_PATH, CONFIG_EXAMPLE)
+    pub fn example() -> (Self, Ini) {
+        let ex = Self {
+            window_title: "test naam".into(),
+            ping_interval: 30,
+            ping_targets: vec![
+                ("test1".into(), "0.0.0.0".parse().unwrap()),
+                ("test2".into(), "127.0.0.1".parse().unwrap()),
+            ],
+        };
+
+        let mut conf = Ini::new();
+
+        conf.with_general_section()
+            .set(CFG_WINDOW_TITLE, ex.window_title.clone())
+            .set(CFG_PING_INTERVAL, ex.ping_interval.to_string());
+
+        let mut ping_s = conf.with_section(Some(CFG_PING_SECTION));
+
+        for (name, addr) in &ex.ping_targets {
+            ping_s.set(name, addr.to_string());
+        }
+
+        (ex, conf)
+    }
+
+    pub fn write_example() -> io::Result<Self> {
+        let (example, ini) = Self::example();
+
+        ini.write_to_file(Self::PATH)?;
+
+        Ok(example)
     }
 
     pub fn read() -> Result<Self, ConfigError> {
@@ -61,33 +95,39 @@ impl Config {
 
         let get = |opt| section.get(opt).ok_or(ConfigError::OptionMissing(opt));
 
-        let window_title = get("window_title")?.to_string();
-        let interval = get("ping_interval")?;
+        let window_title = get(CFG_WINDOW_TITLE)?.to_string();
+        let interval = get(CFG_PING_INTERVAL)?;
 
         let ping_interval = interval
             .parse::<u64>()
-            .map_err(|_| ConfigError::InvalidNumber(interval.to_string(), "ping_interval"))?;
+            .map_err(|_| ConfigError::InvalidNumber(interval.to_string(), CFG_PING_INTERVAL))?;
 
         // --- ping targets
         let targets = table
-            .section(Some("ping"))
-            .ok_or(ConfigError::OptionMissing("ping"))?;
+            .section(Some(CFG_PING_SECTION))
+            .ok_or(ConfigError::OptionMissing(CFG_PING_SECTION))?;
 
         if targets.len() == 0 {
             return Err(ConfigError::NoTargets);
         }
 
-        let mut ping_targets = HashMap::with_capacity(targets.len());
-        println!("{ping_targets:?}");
+        let mut ping_targets = Vec::with_capacity(targets.len());
 
         for (k, v) in targets {
-            ping_targets.insert(k.to_string(), v.to_string());
+            let addr = v
+                .parse()
+                .map_err(|_| ConfigError::InvalidAddr(k.to_string(), v.to_string()))?;
+            ping_targets.push((k.to_string(), addr));
         }
 
-        Ok(Self {
+        let conf = Self {
             window_title,
             ping_interval,
             ping_targets,
-        })
+        };
+
+        println!("{conf:#?}");
+
+        Ok(conf)
     }
 }

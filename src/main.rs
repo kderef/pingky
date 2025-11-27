@@ -3,23 +3,26 @@
 mod config;
 mod task;
 
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 use std::{fs, process, thread};
 
 use fltk::button::Button;
-use fltk::dialog::{self, alert_default, message_icon};
-use fltk::enums::{Align, Color, FrameType};
+use fltk::dialog::{self, alert_default, message_default, message_icon};
+use fltk::enums::{Align, Color, FrameType, Shortcut};
 use fltk::frame::Frame;
 use fltk::group::Flex;
 use fltk::input::Input;
+use fltk::menu::MenuFlag;
 use fltk::prelude::*;
 use fltk::terminal::Terminal;
 use fltk::utils::oncelock::OnceCell;
 use fltk::{app::App, window::Window};
 
-use crate::config::{CONFIG, Config};
+use crate::config::{CONFIG, Config, ConfigError};
+use crate::task::Task;
 
 #[derive(Clone, Copy)]
 pub enum Status {
@@ -38,21 +41,35 @@ impl Status {
     }
 }
 
+pub static RUNNING: AtomicBool = AtomicBool::new(true);
+
 fn main() {
+    if let Err(e) = run() {
+        let e = format!("{e}");
+        eprintln!("{e}");
+        alert_default(&e);
+        process::exit(1);
+    }
+}
+
+fn run() -> Result<(), ConfigError> {
     let config = match Config::read() {
         Ok(conf) => conf,
         Err(e) => {
-            Config::write_example()
-                .unwrap_or_else(|err| eprintln!("failed to write example: {err}"));
+            if !Path::new(Config::PATH).is_file() {
+                println!("writing example to {}", Config::PATH);
+                let conf = Config::write_example()?;
 
-            let err = format!(
-                "{}: {e}\nSee `{}` for an example.",
-                Config::PATH,
-                Config::EXAMPLE_PATH,
-            );
-            eprintln!("{err}");
-            alert_default(&err);
-            process::exit(1)
+                let msg = format!(
+                    "HELP: het bestand `{}` is aangemaakt.\nBewerk deze en herstart het programma.",
+                    Config::PATH
+                );
+                message_default(&msg);
+
+                conf
+            } else {
+                return Err(e);
+            }
         }
     };
     let _ = CONFIG.set(config);
@@ -65,6 +82,14 @@ fn main() {
     let app = App::default().with_scheme(fltk::app::Scheme::Gtk);
     let mut wind = Window::new(0, 0, 500, 300, title).center_screen();
     wind.make_resizable(true);
+
+    // --- menu bar
+    let mut menubar = fltk::menu::SysMenuBar::new(0, 0, 400, 50, "Hello");
+    menubar.set_frame(FrameType::DownFrame);
+    menubar.add("Help", Shortcut::None, MenuFlag::Normal, |_| {
+        println!("HELPQA");
+    });
+    menubar.end();
 
     // --- container for widgets
     let mut container = Flex::default_fill().column();
@@ -104,20 +129,19 @@ fn main() {
     wind.end();
     wind.show();
 
-    let running = AtomicBool::new(true);
-
     thread::scope(|scope| {
         for i in 0..config.ping_targets.len() {
-            scope.spawn(|| {
-                while running.load(Ordering::Relaxed) {}
-                //
+            scope.spawn(move || {
+                let mut task = Task::new(i);
+                task.start();
             });
         }
-        while app.wait() {
-            println!("A");
-        }
-        running.store(false, Ordering::Relaxed);
+
+        while app.wait() {}
+        RUNNING.store(false, Ordering::Release);
     });
 
     app.run().unwrap();
+
+    Ok(())
 }

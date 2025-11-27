@@ -15,6 +15,7 @@ opt-level = "s"
 
 [dependencies]
 fltk = { version = "1.5.22", features = ["fltk-bundled", "static-msvcrt"] }
+ping = "0.7.0"
 rust-ini = "0.21.3"
 thiserror = "2.0.17"
 
