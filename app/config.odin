@@ -4,6 +4,7 @@ import "core:encoding/json"
 import "core:io"
 import "core:os"
 
+
 FILE :: "pingconfig.json"
 
 Config :: struct {
