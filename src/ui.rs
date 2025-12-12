@@ -4,6 +4,8 @@ pub const BG: Color = Color::from_hex(0xf1f4f7);
 
 pub const ARIAL_PATH: &str = if cfg!(target_os = "windows") {
     r"C:\Windows\Fonts\arial.ttf"
+} else if cfg!(target_os = "macos") {
+    "/System/Library/Fonts/Supplemental/Arial.ttf"
 } else {
     panic!("TODO: font paths")
 };
