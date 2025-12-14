@@ -1,6 +1,6 @@
 use directories::BaseDirs;
 use std::cell::LazyCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
@@ -14,7 +14,7 @@ use crate::popup_err;
 pub struct Config {
     pub window_title: String,
     pub ping_interval: u64,
-    pub targets: HashMap<String, IpAddr>,
+    pub targets: BTreeMap<String, IpAddr>,
 }
 
 impl Default for Config {
@@ -22,10 +22,10 @@ impl Default for Config {
         Self {
             window_title: "window naam".into(),
             ping_interval: 30,
-            targets: HashMap::from_iter([
-                ("test1".into(), "127.0.0.1".parse().unwrap()),
-                ("test2".into(), "0.0.0.0".parse().unwrap()),
-            ]),
+            targets: BTreeMap::from_iter(
+                [("test1", "127.0.0.1"), ("test2", "0.0.0.0")]
+                    .map(|(n, a)| (n.to_string(), a.parse().unwrap())),
+            ),
         }
     }
 }
@@ -84,6 +84,8 @@ impl Config {
 
         let contents = fs::read_to_string(&config_path)?;
 
-        toml::from_str(&contents).map_err(Into::into)
+        let mut conf: Self = toml::from_str(&contents)?;
+
+        Ok(conf)
     }
 }

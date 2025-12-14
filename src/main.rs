@@ -14,8 +14,8 @@ use macroquad::{
 
 use crate::{
     config::Config,
-    task::Message,
-    ui::{ARIAL_PATH, BG, PADDING},
+    task::{Message, Status, Update},
+    ui::{ARIAL_PATH, BG, PADDING, Settings},
 };
 
 fn conf() -> Conf {
@@ -42,7 +42,7 @@ pub fn popup_err(title: &str, message: &str) {
 
 #[macroquad::main(conf)]
 async fn main() {
-    let font = load_ttf_font(ARIAL_PATH).await.unwrap();
+    let mut font = load_ttf_font(ARIAL_PATH).await.unwrap();
 
     let config = if Config::exists() {
         println!("config exists: trying to read...");
@@ -76,11 +76,14 @@ async fn main() {
 
     let font_normal_height = measure_text("Hello", Some(&font), ui::SIZE_NORMAL, 1.0).height;
 
+    // settings
+    let mut settings = Settings::new(&config);
+    ui::apply_skin(&font);
+
     // list of responses
-    let mut status = vec![true; config.targets.len()];
+    let mut status = vec![Status::InProgress; config.targets.len()];
 
     // start up the ping threads
-
     let (tx, rx) = mpsc::channel::<Message>();
 
     let mut pinger = Ping::new(*config.targets.values().next().unwrap());
@@ -96,15 +99,19 @@ async fn main() {
 
     loop {
         // update
-        while let Ok((index, result)) = rx.try_recv() {
-            println!("{index} => {result:?}");
+        while let Ok((index, update)) = rx.try_recv() {
+            let (name, addr) = config.targets.iter().nth(index).unwrap();
+            println!("[{index} : {name}] {addr}\t=> {update:?}");
 
-            match result {
-                Ok(_) => {
-                    status[index] = true;
+            match update {
+                Update::Starting => {
+                    status[index] = Status::InProgress;
                 }
-                Err(_) => {
-                    status[index] = false;
+                Update::Ok { latency_ms } => {
+                    status[index] = Status::Ok;
+                }
+                Update::Err(_e) => {
+                    status[index] = Status::Failed;
                 }
             }
         }
@@ -132,10 +139,7 @@ async fn main() {
         let font_size = ui::SIZE_NORMAL;
 
         for (i, (name, _addr)) in config.targets.iter().enumerate() {
-            let color = match status[i] {
-                true => GREEN,
-                false => RED,
-            };
+            let color = status[i].color();
             draw_circle(x, y, r, color);
 
             draw_text_ex(
@@ -151,6 +155,9 @@ async fn main() {
             );
             y += offset;
         }
+
+        // settings overlay
+        // settings.show();
 
         next_frame().await;
     }
