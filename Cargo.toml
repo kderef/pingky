@@ -12,6 +12,7 @@ opt-level = "s"
 
 [dependencies]
 fltk = { version = "1.5.23", features = ["fltk-bundled", "static-msvcrt"] }
+fltk-table = "0.3.5"
 fltk-theme = "0.7.9"
 
 [build-dependencies]
