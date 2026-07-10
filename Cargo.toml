@@ -16,3 +16,4 @@ fltk-theme = "0.7.9"
 
 [build-dependencies]
 static_vcruntime = "3.0.0"
+winres = "0.1.12"
